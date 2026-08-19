@@ -1,5 +1,5 @@
 import os
-import torch
+import tensorflow as tf
 
 # Base Directory
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -32,15 +32,15 @@ CLASSES = ['NORMAL', 'PNEUMONIA']
 CLASS_TO_IDX = {'NORMAL': 0, 'PNEUMONIA': 1}
 IDX_TO_CLASS = {0: 'NORMAL', 1: 'PNEUMONIA'}
 
-# PyTorch Device
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# GPU Acceleration Check
+GPU_AVAILABLE = len(tf.config.list_physical_devices('GPU')) > 0
 
-# Model Paths
-CUSTOM_CNN_PATH = os.path.join(MODELS_DIR, 'custom_cnn.pth')
-MOBILENET_PATH = os.path.join(MODELS_DIR, 'mobilenetv2.pth')
-RESNET_PATH = os.path.join(MODELS_DIR, 'resnet50.pth')
-FINAL_MODEL_PATH = os.path.join(MODELS_DIR, 'final_model.pth')
+# Model Paths (Keras Native Format)
+CUSTOM_CNN_PATH = os.path.join(MODELS_DIR, 'custom_cnn.keras')
+MOBILENET_PATH = os.path.join(MODELS_DIR, 'mobilenetv2.keras')
+RESNET_PATH = os.path.join(MODELS_DIR, 'resnet50.keras')
+FINAL_MODEL_PATH = os.path.join(MODELS_DIR, 'final_model.keras')
 
-# Image Normalization Statistics
+# Image Preprocessing Statistics
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]

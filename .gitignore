@@ -3,9 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# PyTorch & Weights (Optional to track in git if large)
-# *.pth
-# *.h5
+# Model Weights
+*.pth
+*.h5
+*.keras
 
 # Database
 database/predictions.db

@@ -7,7 +7,7 @@ from PIL import Image
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
-import torch
+import tensorflow as tf
 
 # Add parent directory to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -125,7 +125,7 @@ def get_predictor(model_type):
 st.markdown("""
 <div class="main-header">
     <h1>🫁 PneumoScan AI</h1>
-    <p>Computer Vision Deep Learning System for Automated Chest X-Ray Pneumonia Detection</p>
+    <p>Computer Vision TensorFlow Deep Learning System for Automated Chest X-Ray Pneumonia Detection</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -158,7 +158,7 @@ with st.sidebar:
         st.success(f"✅ Active Model: `{model_choice.upper()}`")
     else:
         st.warning(f"⚠️ Model `{model_choice}` training required...")
-    st.info(f"Compute Engine: `{config.DEVICE.type.upper()}`")
+    st.info(f"Compute Engine: `TensorFlow 2.x (Keras)`")
 
 # Tabs Setup
 tab_inference, tab_history = st.tabs([
@@ -221,7 +221,7 @@ with tab_inference:
             if not predictor.is_loaded:
                 st.warning(f"Please train model `{model_choice}` using `python src/train.py` first.")
             else:
-                with st.spinner("Processing X-Ray image through model..."):
+                with st.spinner("Processing X-Ray image through TensorFlow model..."):
                     res = predictor.predict_image(image_to_process)
                     pred_class = res['label']
                     normal_prob = res['normal_probability']
@@ -286,9 +286,8 @@ with tab_inference:
                 # Grad-CAM Heatmap Analysis
                 if show_gradcam:
                     st.markdown("#### 🎯 Grad-CAM Visual Heatmap Analysis")
-                    gradcam_engine = GradCAM(predictor.model, model_type=model_choice)
-                    input_tensor = predictor.transform(image_to_process.convert("RGB")).unsqueeze(0)
-                    cam, _, _ = gradcam_engine.generate_heatmap(input_tensor)
+                    gradcam_engine = GradCAM(predictor.model)
+                    cam, _, _ = gradcam_engine.generate_heatmap(res['img_batch'])
                     heatmap, overlay = gradcam_engine.overlay_heatmap(image_to_process, cam)
 
                     c1, c2 = st.columns(2)
@@ -327,6 +326,6 @@ with tab_history:
 # Footer
 st.markdown("""
 <div class="footer">
-    PneumoScan AI Modular Diagnostic System • PyTorch & Streamlit
+    PneumoScan AI Modular Diagnostic System • TensorFlow 2.x & Streamlit
 </div>
 """, unsafe_allow_html=True)
