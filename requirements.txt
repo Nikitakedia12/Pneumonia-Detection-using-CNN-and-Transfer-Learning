@@ -1,4 +1,5 @@
-tensorflow
+torch
+torchvision
 streamlit
 opencv-python
 pillow
