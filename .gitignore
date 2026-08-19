@@ -1,0 +1,24 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyTorch & Weights (Optional to track in git if large)
+# *.pth
+# *.h5
+
+# Database
+database/predictions.db
+
+# IDEs
+.idea/
+.vscode/
+.ipynb_checkpoints/
+
+# Environments
+env/
+venv/
+ENV/
+
+# Output images & cache
+.dist/

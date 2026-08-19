@@ -1,0 +1,19 @@
+Logging initialized. Writing logs to: C:\Users\LENOVO\Documents\SM VITA\Mini project\pneumonia-detection-using-CNN-computer-vision\pneumonia-detection-using-CNN-computer-vision\outputs\training.log
+
+==================================================
+   Loading Existing Weights for CUSTOM_CNN from C:\Users\LENOVO\Documents\SM VITA\Mini project\pneumonia-detection-using-CNN-computer-vision\pneumonia-detection-using-CNN-computer-vision\models\custom_cnn.pth
+==================================================
+
+==================================================
+   Loading Existing Weights for MOBILENETV2 from C:\Users\LENOVO\Documents\SM VITA\Mini project\pneumonia-detection-using-CNN-computer-vision\pneumonia-detection-using-CNN-computer-vision\models\mobilenetv2.pth
+==================================================
+
+==================================================
+   Loading Existing Weights for RESNET50 from C:\Users\LENOVO\Documents\SM VITA\Mini project\pneumonia-detection-using-CNN-computer-vision\pneumonia-detection-using-CNN-computer-vision\models\resnet50.pth
+==================================================
+
+==================================================
+ [BEST MODEL SELECTED]: RESNET50
+==================================================
+Copied C:\Users\LENOVO\Documents\SM VITA\Mini project\pneumonia-detection-using-CNN-computer-vision\pneumonia-detection-using-CNN-computer-vision\models\resnet50.pth -> C:\Users\LENOVO\Documents\SM VITA\Mini project\pneumonia-detection-using-CNN-computer-vision\pneumonia-detection-using-CNN-computer-vision\models\final_model.pth
+Saved complete metrics summary to C:\Users\LENOVO\Documents\SM VITA\Mini project\pneumonia-detection-using-CNN-computer-vision\pneumonia-detection-using-CNN-computer-vision\model_metrics.json

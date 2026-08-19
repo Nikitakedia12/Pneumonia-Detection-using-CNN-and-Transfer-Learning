@@ -1,0 +1,11 @@
+torch
+torchvision
+streamlit
+opencv-python
+pillow
+matplotlib
+seaborn
+plotly
+pandas
+numpy
+scikit-learn
