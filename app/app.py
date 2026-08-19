@@ -116,10 +116,12 @@ st.markdown("""
 # Initialize Database
 db = PredictionDB()
 
-# Cache Model Engine
-@st.cache_resource
+# Load Predictor Engine with Auto-Refresh
 def get_predictor(model_type):
-    return Predictor(model_type=model_type)
+    p = Predictor(model_type=model_type)
+    if not p.is_loaded:
+        p._load_model()
+    return p
 
 # App Header
 st.markdown("""
@@ -209,7 +211,7 @@ with tab_inference:
             if invert_view:
                 processed_img = Image.fromarray(255 - np.array(processed_img))
 
-            st.image(processed_img, caption=f"Active Image: {input_source_name}", use_column_width=True)
+            st.image(processed_img, caption=f"Active Image: {input_source_name}", use_container_width=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -218,6 +220,9 @@ with tab_inference:
         st.subheader("2. AI Diagnostic Inference")
 
         if image_to_process is not None:
+            if not predictor.is_loaded:
+                predictor._load_model()
+
             if not predictor.is_loaded:
                 st.warning(f"Please train model `{model_choice}` using `python src/train.py` first.")
             else:
@@ -293,9 +298,9 @@ with tab_inference:
 
                     c1, c2 = st.columns(2)
                     with c1:
-                        st.image(heatmap, caption="Grad-CAM Activation Map", use_column_width=True)
+                        st.image(heatmap, caption="Grad-CAM Activation Map", use_container_width=True)
                     with c2:
-                        st.image(overlay, caption="Visual Overlay", use_column_width=True)
+                        st.image(overlay, caption="Visual Overlay", use_container_width=True)
 
         else:
             st.info("👈 Select or upload an X-ray image from the left panel to run diagnostic analysis.")
