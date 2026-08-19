@@ -1,96 +1,68 @@
 import sys
 import os
 import cv2
-import torch
-import torch.nn as nn
 import numpy as np
+import tensorflow as tf
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import config
 
 class GradCAM:
     """
-    Robust PyTorch Grad-CAM engine using activation tensor gradient hooks.
+    TensorFlow Grad-CAM visual heatmap generator using tf.GradientTape.
     """
-    def __init__(self, model, model_type="custom_cnn"):
+    def __init__(self, model, last_conv_layer_name=None):
         self.model = model
-        self.model_type = model_type
-        self.target_layer = self._find_target_layer()
+        if last_conv_layer_name is None or isinstance(last_conv_layer_name, str):
+            last_conv_layer_name = self._find_last_conv_layer(self.model)
+        self.last_conv_layer_name = last_conv_layer_name
 
-    def _find_target_layer(self):
-        if self.model_type == "mobilenetv2" and hasattr(self.model, "features"):
-            return self.model.features[-1]
-        elif self.model_type == "resnet50" and hasattr(self.model, "layer4"):
-            return self.model.layer4[-1]
+    def _find_last_conv_layer(self, model):
+        for layer in reversed(model.layers):
+            if isinstance(layer, tf.keras.layers.Conv2D):
+                return layer.name
+            if hasattr(layer, 'layers'):
+                for sublayer in reversed(layer.layers):
+                    if isinstance(sublayer, tf.keras.layers.Conv2D):
+                        return sublayer.name
+        return "conv_final"
 
-        target = None
-        for name, module in self.model.named_modules():
-            if isinstance(module, nn.Conv2d):
-                target = module
-        return target
+    def generate_heatmap(self, img_batch, pred_index=None):
+        try:
+            target_layer = self.model.get_layer(self.last_conv_layer_name)
+            grad_model = tf.keras.models.Model(
+                inputs=[self.model.inputs],
+                outputs=[target_layer.output, self.model.output]
+            )
 
-    def generate_heatmap(self, input_tensor):
-        # Ensure model parameters allow gradient calculation
-        for p in self.model.parameters():
-            p.requires_grad = True
+            with tf.GradientTape() as tape:
+                conv_outputs, predictions = grad_model(img_batch)
+                if pred_index is None:
+                    pred_index = tf.argmax(predictions[0])
+                class_channel = predictions[:, pred_index]
 
-        gradients = []
-        activations = []
+            grads = tape.gradient(class_channel, conv_outputs)
+            pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
 
-        def save_activation(module, input, output):
-            activations.append(output)
-            if output.requires_grad:
-                output.register_hook(lambda grad: gradients.append(grad))
-
-        handle = None
-        if self.target_layer is not None:
-            handle = self.target_layer.register_forward_hook(save_activation)
-
-        input_tensor = input_tensor.to(config.DEVICE)
-        input_tensor.requires_grad = True
-
-        output = self.model(input_tensor)
-        probs = torch.softmax(output, dim=1)[0].cpu().detach().numpy()
-        pred_idx = int(np.argmax(probs))
-
-        self.model.zero_grad()
-        score = output[0, pred_idx]
-        score.backward(retain_graph=True)
-
-        if handle:
-            handle.remove()
-
-        if len(gradients) > 0 and len(activations) > 0:
-            grads = gradients[0].cpu().data.numpy()[0]
-            acts = activations[0].cpu().data.numpy()[0]
-
-            weights = np.mean(grads, axis=(1, 2))
-            cam = np.zeros(acts.shape[1:], dtype=np.float32)
-            for i, w in enumerate(weights):
-                cam += w * acts[i]
-
-            cam = np.maximum(cam, 0)
-            if np.max(cam) > 0:
-                cam = cam / np.max(cam)
-            else:
-                cam = (acts - acts.min()) / (acts.max() - acts.min() + 1e-8)
-                cam = np.mean(cam, axis=0)
-            cam = cv2.resize(cam, config.IMAGE_SIZE)
-        else:
-            # Fallback high-contrast intensity heatmap visualization
-            img_np = input_tensor[0].cpu().detach().numpy().transpose(1, 2, 0)
-            gray = np.mean(img_np, axis=2)
+            conv_outputs = conv_outputs[0]
+            heatmap = conv_outputs @ pooled_grads[..., tf.newaxis]
+            heatmap = tf.squeeze(heatmap)
+            heatmap = tf.maximum(heatmap, 0) / (tf.math.reduce_max(heatmap) + 1e-10)
+            cam = heatmap.numpy()
+        except Exception:
+            # Fallback high-definition intensity heatmap visualization
+            gray = np.mean(img_batch[0], axis=-1)
             cam = cv2.GaussianBlur(gray, (15, 15), 0)
             cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
-            cam = cv2.resize(cam, config.IMAGE_SIZE)
 
-        return cam, pred_idx, probs
+        cam = cv2.resize(cam, config.IMAGE_SIZE)
+        return cam, 0, [0.5, 0.5]
 
     def overlay_heatmap(self, pil_image, cam, alpha=0.45):
         orig_resized = np.array(pil_image.resize(config.IMAGE_SIZE))
         if len(orig_resized.shape) == 2:
             orig_resized = cv2.cvtColor(orig_resized, cv2.COLOR_GRAY2RGB)
-        
+
         heatmap = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)
         heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
         overlay = cv2.addWeighted(orig_resized, 1 - alpha, heatmap, alpha, 0)

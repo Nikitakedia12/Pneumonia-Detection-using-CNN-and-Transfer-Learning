@@ -1,39 +1,56 @@
 import sys
 import os
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
+import tensorflow as tf
 
 # Add root directory to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import config
 
-def get_transforms():
-    train_transform = transforms.Compose([
-        transforms.Resize(config.IMAGE_SIZE),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(15),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2),
-        transforms.ToTensor(),
-        transforms.Normalize(config.MEAN, config.STD)
-    ])
+def get_data_augmentation():
+    """
+    Keras Sequential data augmentation pipeline.
+    """
+    data_augmentation = tf.keras.Sequential([
+        tf.keras.layers.RandomFlip("horizontal"),
+        tf.keras.layers.RandomRotation(0.1),
+        tf.keras.layers.RandomZoom(0.1),
+    ], name="data_augmentation")
+    return data_augmentation
 
-    eval_transform = transforms.Compose([
-        transforms.Resize(config.IMAGE_SIZE),
-        transforms.ToTensor(),
-        transforms.Normalize(config.MEAN, config.STD)
-    ])
-    
-    return train_transform, eval_transform
+def get_datasets(batch_size=config.BATCH_SIZE, image_size=config.IMAGE_SIZE):
+    """
+    Loads train, validation, and test datasets using tf.keras.utils.image_dataset_from_directory.
+    """
+    train_ds = tf.keras.utils.image_dataset_from_directory(
+        config.TRAIN_DIR,
+        image_size=image_size,
+        batch_size=batch_size,
+        label_mode='categorical',
+        shuffle=True
+    )
 
-def get_dataloaders(batch_size=config.BATCH_SIZE):
-    train_transform, eval_transform = get_transforms()
+    val_ds = tf.keras.utils.image_dataset_from_directory(
+        config.VAL_DIR,
+        image_size=image_size,
+        batch_size=batch_size,
+        label_mode='categorical',
+        shuffle=False
+    )
 
-    train_dataset = datasets.ImageFolder(root=config.TRAIN_DIR, transform=train_transform)
-    val_dataset = datasets.ImageFolder(root=config.VAL_DIR, transform=eval_transform)
-    test_dataset = datasets.ImageFolder(root=config.TEST_DIR, transform=eval_transform)
+    test_ds = tf.keras.utils.image_dataset_from_directory(
+        config.TEST_DIR,
+        image_size=image_size,
+        batch_size=batch_size,
+        label_mode='categorical',
+        shuffle=False
+    )
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    class_names = train_ds.class_names
 
-    return train_loader, val_loader, test_loader, train_dataset.classes
+    # Performance optimization with prefetch
+    AUTOTUNE = tf.data.AUTOTUNE
+    train_ds = train_ds.prefetch(buffer_size=AUTOTUNE)
+    val_ds = val_ds.prefetch(buffer_size=AUTOTUNE)
+    test_ds = test_ds.prefetch(buffer_size=AUTOTUNE)
+
+    return train_ds, val_ds, test_ds, class_names
