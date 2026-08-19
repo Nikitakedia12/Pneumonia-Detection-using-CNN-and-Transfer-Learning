@@ -35,7 +35,10 @@ class Predictor:
     def _load_model(self):
         if os.path.exists(self.model_path):
             try:
-                self.model = torch.load(self.model_path, map_location=config.DEVICE)
+                try:
+                    self.model = torch.load(self.model_path, map_location=config.DEVICE, weights_only=False)
+                except TypeError:
+                    self.model = torch.load(self.model_path, map_location=config.DEVICE)
                 self.model.eval()
                 self.is_loaded = True
             except Exception as e:

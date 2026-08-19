@@ -3,14 +3,16 @@ import os
 import time
 import json
 import shutil
-import tensorflow as tf
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torchvision.models as models
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import config
-from src.preprocessing import get_datasets, get_data_augmentation
+from src.preprocessing import get_dataloaders
 from src.evaluate import evaluate_model, generate_evaluation_plots
 
-# Logger Tee to output logs both to terminal and training.log
 class LoggerTee:
     def __init__(self, log_path):
         self.terminal = sys.stdout
@@ -30,123 +32,109 @@ class LoggerTee:
         self.terminal.flush()
         self.log_file.flush()
 
-def build_custom_cnn(input_shape=(224, 224, 3), num_classes=2):
-    inputs = tf.keras.Input(shape=input_shape)
-    x = get_data_augmentation()(inputs)
-    x = tf.keras.layers.Rescaling(1./255)(x)
+class CustomCNN(nn.Module):
+    def __init__(self, num_classes=2):
+        super(CustomCNN, self).__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
 
-    x = tf.keras.layers.Conv2D(32, (3, 3), padding='same')(x)
-    x = tf.keras.layers.BatchNormalization()(x)
-    x = tf.keras.layers.Activation('relu')(x)
-    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
 
-    x = tf.keras.layers.Conv2D(64, (3, 3), padding='same')(x)
-    x = tf.keras.layers.BatchNormalization()(x)
-    x = tf.keras.layers.Activation('relu')(x)
-    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+        )
+        self.classifier = nn.Sequential(
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+            nn.Dropout(0.4),
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Linear(128, num_classes)
+        )
 
-    x = tf.keras.layers.Conv2D(128, (3, 3), padding='same', name='conv_final')(x)
-    x = tf.keras.layers.BatchNormalization()(x)
-    x = tf.keras.layers.Activation('relu')(x)
-    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+    def forward(self, x):
+        x = self.features(x)
+        x = self.classifier(x)
+        return x
 
-    x = tf.keras.layers.GlobalAveragePooling2D()(x)
-    x = tf.keras.layers.Dropout(0.4)(x)
-    x = tf.keras.layers.Dense(128, activation='relu')(x)
-    outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
+def build_custom_cnn(num_classes=2):
+    return CustomCNN(num_classes=num_classes)
 
-    model = tf.keras.Model(inputs, outputs, name="CustomCNN")
+def build_mobilenetv2(num_classes=2):
+    model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
+    model.classifier[1] = nn.Linear(model.last_channel, num_classes)
     return model
 
-def build_mobilenetv2(input_shape=(224, 224, 3), num_classes=2):
-    inputs = tf.keras.Input(shape=input_shape)
-    x = get_data_augmentation()(inputs)
-    x = tf.keras.applications.mobilenet_v2.preprocess_input(x)
-    
-    try:
-        base_model = tf.keras.applications.MobileNetV2(
-            input_shape=input_shape,
-            include_top=False,
-            weights='imagenet'
-        )
-    except Exception as e:
-        print(f"Notice: MobileNetV2 ImageNet weights download failed ({e}). Building without pretrained weights.", flush=True)
-        base_model = tf.keras.applications.MobileNetV2(
-            input_shape=input_shape,
-            include_top=False,
-            weights=None
-        )
-
-    base_model.trainable = False
-    x = base_model(x, training=False)
-    x = tf.keras.layers.GlobalAveragePooling2D()(x)
-    x = tf.keras.layers.Dropout(0.3)(x)
-    x = tf.keras.layers.Dense(128, activation='relu')(x)
-    outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
-
-    model = tf.keras.Model(inputs, outputs, name="MobileNetV2")
+def build_resnet50(num_classes=2):
+    model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+    num_ftrs = model.fc.in_features
+    model.fc = nn.Linear(num_ftrs, num_classes)
     return model
 
-def build_resnet50(input_shape=(224, 224, 3), num_classes=2):
-    inputs = tf.keras.Input(shape=input_shape)
-    x = get_data_augmentation()(inputs)
-    x = tf.keras.applications.resnet50.preprocess_input(x)
-    
-    try:
-        base_model = tf.keras.applications.ResNet50(
-            input_shape=input_shape,
-            include_top=False,
-            weights='imagenet'
-        )
-    except Exception as e:
-        print(f"Notice: ResNet50 ImageNet weights download failed ({e}). Building without pretrained weights.", flush=True)
-        base_model = tf.keras.applications.ResNet50(
-            input_shape=input_shape,
-            include_top=False,
-            weights=None
-        )
-
-    base_model.trainable = False
-    x = base_model(x, training=False)
-    x = tf.keras.layers.GlobalAveragePooling2D()(x)
-    x = tf.keras.layers.Dropout(0.3)(x)
-    x = tf.keras.layers.Dense(128, activation='relu')(x)
-    outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
-
-    model = tf.keras.Model(inputs, outputs, name="ResNet50")
-    return model
-
-def train_model(model_name, build_fn, save_path, train_ds, val_ds, epochs=config.EPOCHS):
+def train_model(model_name, build_fn, save_path, train_loader, val_loader, epochs=config.EPOCHS):
     print(f"\n==========================================")
     print(f"🚀 Training Architecture: {model_name}")
     print(f"==========================================")
 
-    model = build_fn()
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE),
-        loss='categorical_crossentropy',
-        metrics=['accuracy']
-    )
+    model = build_fn().to(config.DEVICE)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY)
 
-    callbacks = [
-        tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True),
-        tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=2, min_lr=1e-6),
-        tf.keras.callbacks.ModelCheckpoint(filepath=save_path, monitor='val_accuracy', save_best_only=True)
-    ]
-
+    best_val_acc = 0.0
     start_time = time.time()
-    history = model.fit(
-        train_ds,
-        validation_data=val_ds,
-        epochs=epochs,
-        callbacks=callbacks
-    )
-    duration = time.time() - start_time
-    print(f"✅ Training completed in {duration:.2f}s")
 
-    # Ensure best model is saved
-    model.save(save_path)
-    return model, history
+    for epoch in range(epochs):
+        model.train()
+        running_loss = 0.0
+        correct = 0
+        total = 0
+
+        for images, labels in train_loader:
+            images, labels = images.to(config.DEVICE), labels.to(config.DEVICE)
+            optimizer.zero_grad()
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item() * images.size(0)
+            _, preds = torch.max(outputs, 1)
+            correct += torch.sum(preds == labels.data)
+            total += labels.size(0)
+
+        epoch_loss = running_loss / total
+        epoch_acc = float(correct) / total
+
+        # Validation
+        model.eval()
+        val_correct = 0
+        val_total = 0
+        with torch.no_grad():
+            for images, labels in val_loader:
+                images, labels = images.to(config.DEVICE), labels.to(config.DEVICE)
+                outputs = model(images)
+                _, preds = torch.max(outputs, 1)
+                val_correct += torch.sum(preds == labels.data)
+                val_total += labels.size(0)
+
+        val_acc = float(val_correct) / val_total
+        print(f"Epoch [{epoch+1}/{epochs}] - Train Loss: {epoch_loss:.4f} | Train Acc: {epoch_acc*100:.2f}% | Val Acc: {val_acc*100:.2f}%")
+
+        if val_acc >= best_val_acc:
+            best_val_acc = val_acc
+            torch.save(model, save_path)
+
+    duration = time.time() - start_time
+    print(f"✅ Training completed in {duration:.2f}s | Saved to {save_path}")
+    return model
 
 def main():
     log_path = os.path.join(config.OUTPUTS_DIR, "training.log")
@@ -155,10 +143,10 @@ def main():
     os.makedirs(config.MODELS_DIR, exist_ok=True)
     os.makedirs(config.OUTPUTS_DIR, exist_ok=True)
 
-    print(f"TensorFlow Version: {tf.__version__}")
-    print(f"GPU Available: {len(tf.config.list_physical_devices('GPU')) > 0}")
+    print(f"PyTorch Version: {torch.__version__}")
+    print(f"Device Engine: {config.DEVICE}")
 
-    train_ds, val_ds, test_ds, class_names = get_datasets()
+    train_loader, val_loader, test_loader, class_names = get_dataloaders()
 
     architectures = [
         ("custom_cnn", build_custom_cnn, config.CUSTOM_CNN_PATH),
@@ -166,47 +154,8 @@ def main():
         ("resnet50", build_resnet50, config.RESNET_PATH)
     ]
 
-    results = {}
-    best_model_name = None
-    best_f1_score = -1.0
-    best_model_path = None
-
     for name, build_fn, path in architectures:
-        model, history = train_model(name, build_fn, path, train_ds, val_ds)
-        
-        # Evaluate model on test set
-        metrics, y_true, y_pred_probs = evaluate_model(model, test_ds)
-        metrics['history'] = {
-            'train_loss': [float(x) for x in history.history['loss']],
-            'val_loss': [float(x) for x in history.history['val_loss']],
-            'train_acc': [float(x) for x in history.history['accuracy']],
-            'val_acc': [float(x) for x in history.history['val_accuracy']]
-        }
-        results[name] = metrics
-
-        print(f"\n📊 {name.upper()} Test Metrics:")
-        print(f"   Accuracy: {metrics['accuracy']*100:.2f}% | Precision: {metrics['precision']*100:.2f}% | Recall: {metrics['recall']*100:.2f}% | F1-Score: {metrics['f1_score']*100:.2f}% | ROC-AUC: {metrics['roc_auc']:.4f}")
-
-        if metrics['f1_score'] > best_f1_score:
-            best_f1_score = metrics['f1_score']
-            best_model_name = name
-            best_model_path = path
-
-    print(f"\n🏆 Best Selected Model: {best_model_name.upper()} (F1-Score: {best_f1_score*100:.2f}%)")
-    shutil.copy(best_model_path, config.FINAL_MODEL_PATH)
-    print(f"💾 Saved final model to: {config.FINAL_MODEL_PATH}")
-
-    # Save metrics JSON
-    with open(config.METRICS_JSON_PATH, "w") as f:
-        json.dump({
-            "best_model": best_model_name,
-            "all_models": results
-        }, f, indent=4)
-
-    # Generate plots for best model
-    best_model = tf.keras.models.load_model(config.FINAL_MODEL_PATH)
-    _, y_true, y_pred_probs = evaluate_model(best_model, test_ds)
-    generate_evaluation_plots(y_true, y_pred_probs)
+        train_model(name, build_fn, path, train_loader, val_loader)
 
 if __name__ == "__main__":
     main()

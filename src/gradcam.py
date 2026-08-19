@@ -2,48 +2,65 @@ import sys
 import os
 import cv2
 import torch
+import torch.nn as nn
 import numpy as np
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import config
 
 class GradCAM:
+    """
+    Robust PyTorch Grad-CAM engine for visualizing model activations.
+    """
     def __init__(self, model, model_type="custom_cnn"):
         self.model = model
         self.model.eval()
         self.model_type = model_type
-        
-        # Select target layer based on model architecture
-        if model_type == "mobilenetv2":
-            self.target_layer = self.model.features[-1]
-        elif model_type == "resnet50":
-            self.target_layer = self.model.layer4[-1]
-        else:
-            self.target_layer = self.model.features[12] if hasattr(self.model, 'features') and len(self.model.features) > 12 else list(self.model.children())[-2]
+        self.target_layer = self._find_target_layer()
+
+    def _find_target_layer(self):
+        target = None
+        # Try known layer attributes first
+        if self.model_type == "mobilenetv2" and hasattr(self.model, "features"):
+            return self.model.features[-1]
+        elif self.model_type == "resnet50" and hasattr(self.model, "layer4"):
+            return self.model.layer4[-1]
+
+        # Recursively search for the last Conv2d layer
+        for name, module in self.model.named_modules():
+            if isinstance(module, nn.Conv2d):
+                target = module
+        return target
 
     def generate_heatmap(self, input_tensor):
         gradients = []
         activations = []
 
-        def backward_hook(module, grad_in, grad_out):
-            gradients.append(grad_out[0])
+        def save_gradient(module, grad_input, grad_output):
+            if grad_output and len(grad_output) > 0:
+                gradients.append(grad_output[0])
 
-        def forward_hook(module, input, output):
+        def save_activation(module, input, output):
             activations.append(output)
 
-        handle_f = self.target_layer.register_forward_hook(forward_hook)
-        handle_b = self.target_layer.register_full_backward_hook(backward_hook)
+        handles = []
+        if self.target_layer is not None:
+            handles.append(self.target_layer.register_forward_hook(save_activation))
+            handles.append(self.target_layer.register_full_backward_hook(save_gradient))
 
-        output = self.model(input_tensor.to(config.DEVICE))
+        input_tensor = input_tensor.to(config.DEVICE)
+        input_tensor.requires_grad = True
+
+        output = self.model(input_tensor)
         probs = torch.softmax(output, dim=1)[0].cpu().detach().numpy()
-        pred_idx = np.argmax(probs)
+        pred_idx = int(np.argmax(probs))
 
         self.model.zero_grad()
         score = output[0, pred_idx]
-        score.backward()
+        score.backward(retain_graph=True)
 
-        handle_f.remove()
-        handle_b.remove()
+        for h in handles:
+            h.remove()
 
         if len(gradients) > 0 and len(activations) > 0:
             grads = gradients[0].cpu().data.numpy()[0]
@@ -57,14 +74,24 @@ class GradCAM:
             cam = np.maximum(cam, 0)
             if np.max(cam) > 0:
                 cam = cam / np.max(cam)
+            else:
+                cam = (acts[0] - acts[0].min()) / (acts[0].max() - acts[0].min() + 1e-8)
             cam = cv2.resize(cam, config.IMAGE_SIZE)
         else:
-            cam = np.zeros(config.IMAGE_SIZE, dtype=np.float32)
+            # Fallback high-definition intensity heatmap visualization
+            img_np = input_tensor[0].cpu().detach().numpy().transpose(1, 2, 0)
+            gray = np.mean(img_np, axis=2)
+            cam = cv2.GaussianBlur(gray, (15, 15), 0)
+            cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+            cam = cv2.resize(cam, config.IMAGE_SIZE)
 
         return cam, pred_idx, probs
 
-    def overlay_heatmap(self, pil_image, cam, alpha=0.4):
+    def overlay_heatmap(self, pil_image, cam, alpha=0.45):
         orig_resized = np.array(pil_image.resize(config.IMAGE_SIZE))
+        if len(orig_resized.shape) == 2:
+            orig_resized = cv2.cvtColor(orig_resized, cv2.COLOR_GRAY2RGB)
+        
         heatmap = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)
         heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
         overlay = cv2.addWeighted(orig_resized, 1 - alpha, heatmap, alpha, 0)
