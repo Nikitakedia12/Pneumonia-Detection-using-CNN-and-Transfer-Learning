@@ -10,43 +10,41 @@ from config import config
 
 class GradCAM:
     """
-    Robust PyTorch Grad-CAM engine for visualizing model activations.
+    Robust PyTorch Grad-CAM engine using activation tensor gradient hooks.
     """
     def __init__(self, model, model_type="custom_cnn"):
         self.model = model
-        self.model.eval()
         self.model_type = model_type
         self.target_layer = self._find_target_layer()
 
     def _find_target_layer(self):
-        target = None
-        # Try known layer attributes first
         if self.model_type == "mobilenetv2" and hasattr(self.model, "features"):
             return self.model.features[-1]
         elif self.model_type == "resnet50" and hasattr(self.model, "layer4"):
             return self.model.layer4[-1]
 
-        # Recursively search for the last Conv2d layer
+        target = None
         for name, module in self.model.named_modules():
             if isinstance(module, nn.Conv2d):
                 target = module
         return target
 
     def generate_heatmap(self, input_tensor):
+        # Ensure model parameters allow gradient calculation
+        for p in self.model.parameters():
+            p.requires_grad = True
+
         gradients = []
         activations = []
 
-        def save_gradient(module, grad_input, grad_output):
-            if grad_output and len(grad_output) > 0:
-                gradients.append(grad_output[0])
-
         def save_activation(module, input, output):
             activations.append(output)
+            if output.requires_grad:
+                output.register_hook(lambda grad: gradients.append(grad))
 
-        handles = []
+        handle = None
         if self.target_layer is not None:
-            handles.append(self.target_layer.register_forward_hook(save_activation))
-            handles.append(self.target_layer.register_full_backward_hook(save_gradient))
+            handle = self.target_layer.register_forward_hook(save_activation)
 
         input_tensor = input_tensor.to(config.DEVICE)
         input_tensor.requires_grad = True
@@ -59,8 +57,8 @@ class GradCAM:
         score = output[0, pred_idx]
         score.backward(retain_graph=True)
 
-        for h in handles:
-            h.remove()
+        if handle:
+            handle.remove()
 
         if len(gradients) > 0 and len(activations) > 0:
             grads = gradients[0].cpu().data.numpy()[0]
@@ -75,10 +73,11 @@ class GradCAM:
             if np.max(cam) > 0:
                 cam = cam / np.max(cam)
             else:
-                cam = (acts[0] - acts[0].min()) / (acts[0].max() - acts[0].min() + 1e-8)
+                cam = (acts - acts.min()) / (acts.max() - acts.min() + 1e-8)
+                cam = np.mean(cam, axis=0)
             cam = cv2.resize(cam, config.IMAGE_SIZE)
         else:
-            # Fallback high-definition intensity heatmap visualization
+            # Fallback high-contrast intensity heatmap visualization
             img_np = input_tensor[0].cpu().detach().numpy().transpose(1, 2, 0)
             gray = np.mean(img_np, axis=2)
             cam = cv2.GaussianBlur(gray, (15, 15), 0)

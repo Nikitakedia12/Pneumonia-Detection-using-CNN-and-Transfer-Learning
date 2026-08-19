@@ -291,16 +291,20 @@ with tab_inference:
                 # Grad-CAM Heatmap Analysis
                 if show_gradcam:
                     st.markdown("#### 🎯 Grad-CAM Visual Heatmap Analysis")
-                    gradcam_engine = GradCAM(predictor.model, model_type=model_choice)
-                    input_tensor = predictor.transform(image_to_process.convert("RGB")).unsqueeze(0)
-                    cam, _, _ = gradcam_engine.generate_heatmap(input_tensor)
-                    heatmap, overlay = gradcam_engine.overlay_heatmap(image_to_process, cam)
+                    try:
+                        with st.spinner("Generating Grad-CAM heatmap visualization..."):
+                            gradcam_engine = GradCAM(predictor.model, model_type=model_choice)
+                            input_tensor = predictor.transform(image_to_process.convert("RGB")).unsqueeze(0)
+                            cam, _, _ = gradcam_engine.generate_heatmap(input_tensor)
+                            heatmap, overlay = gradcam_engine.overlay_heatmap(image_to_process, cam)
 
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.image(heatmap, caption="Grad-CAM Activation Map", use_container_width=True)
-                    with c2:
-                        st.image(overlay, caption="Visual Overlay", use_container_width=True)
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.image(heatmap, caption="Grad-CAM Activation Map", use_container_width=True)
+                        with c2:
+                            st.image(overlay, caption="Visual Overlay", use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Grad-CAM Error: {e}")
 
         else:
             st.info("👈 Select or upload an X-ray image from the left panel to run diagnostic analysis.")
