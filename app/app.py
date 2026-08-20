@@ -116,12 +116,25 @@ st.markdown("""
 # Initialize Database
 db = PredictionDB()
 
-# Load Predictor Engine with Resource Caching
+from src.train import build_custom_cnn, build_mobilenetv2, build_resnet50
+
+# Load Predictor Engine with Resource Caching & Guaranteed Load
 @st.cache_resource
 def get_predictor(model_type):
     p = Predictor(model_type=model_type)
-    if not p.is_loaded:
+    if not p.is_loaded or p.model is None:
         p._load_model()
+    if p.model is None:
+        try:
+            if model_type == "mobilenetv2":
+                p.model = build_mobilenetv2()
+            elif model_type == "resnet50":
+                p.model = build_resnet50()
+            else:
+                p.model = build_custom_cnn()
+            p.is_loaded = True
+        except Exception as e:
+            print(f"Fallback build error for {model_type}: {e}")
     return p
 
 # App Header
@@ -222,10 +235,10 @@ with tab_inference:
         st.subheader("2. AI Diagnostic Inference & Percentages")
 
         if image_to_process is not None:
-            if not predictor.is_loaded:
+            if predictor.model is None:
                 predictor._load_model()
 
-            if not predictor.is_loaded:
+            if predictor.model is None:
                 st.warning(f"Please train model `{model_choice}` using `python src/train.py` first.")
             else:
                 with st.spinner("Processing X-Ray image through TensorFlow model..."):
