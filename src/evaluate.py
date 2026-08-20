@@ -92,3 +92,37 @@ def generate_evaluation_plots(y_true, y_pred_probs):
 
     print(f"📊 Saved Confusion Matrix plot to: {config.CONFUSION_MATRIX_PATH}")
     print(f"📈 Saved ROC Curve plot to: {config.ROC_CURVE_PATH}")
+
+def main():
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+
+    print("==========================================")
+    print("Running Deep Learning Model Evaluation")
+    print("==========================================")
+
+    from src.preprocessing import get_datasets
+
+    model_path = config.FINAL_MODEL_PATH if os.path.exists(config.FINAL_MODEL_PATH) else config.CUSTOM_CNN_PATH
+    print(f"Loading evaluation model from: {model_path}")
+    model = tf.keras.models.load_model(model_path)
+
+    _, _, test_ds, class_names = get_datasets()
+    metrics, y_true, y_pred_probs = evaluate_model(model, test_ds)
+    generate_evaluation_plots(y_true, y_pred_probs)
+
+    print("\n==========================================")
+    print("TEST DATASET EVALUATION METRICS RESULTS:")
+    print("==========================================")
+    for k, v in metrics.items():
+        if isinstance(v, float):
+            print(f"  - {k.capitalize()}: {v*100:.2f}%" if k != 'roc_auc' else f"  - ROC-AUC: {v:.4f}")
+        else:
+            print(f"  - {k.capitalize()}: {v}")
+    print("==========================================\n")
+
+if __name__ == "__main__":
+    main()
