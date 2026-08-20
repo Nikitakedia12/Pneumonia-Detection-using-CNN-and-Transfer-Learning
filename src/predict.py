@@ -61,12 +61,22 @@ class Predictor:
             pil_img = Image.open(image_input).convert("RGB")
         elif isinstance(image_input, Image.Image):
             pil_img = image_input.convert("RGB")
+        elif hasattr(image_input, 'shape'):
+            arr = np.array(image_input)
+            if len(arr.shape) == 4 and arr.shape[1] == 3:
+                arr = arr[0]
+            if len(arr.shape) == 3 and arr.shape[0] == 3 and arr.shape[-1] != 3:
+                arr = np.transpose(arr, (1, 2, 0))
+            pil_img = Image.fromarray(np.uint8(arr)).convert("RGB")
         else:
-            pil_img = Image.fromarray(image_input).convert("RGB")
+            pil_img = Image.fromarray(np.uint8(np.array(image_input))).convert("RGB")
 
         pil_img = pil_img.resize(config.IMAGE_SIZE)
         img_array = tf.keras.preprocessing.image.img_to_array(pil_img)
         img_batch = np.expand_dims(img_array, axis=0)
+
+        if img_batch.shape == (1, 3, 224, 224):
+            img_batch = np.transpose(img_batch, (0, 2, 3, 1))
 
         probs = self.model.predict(img_batch, verbose=0)[0]
 

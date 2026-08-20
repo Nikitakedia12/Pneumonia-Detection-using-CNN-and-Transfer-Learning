@@ -28,6 +28,8 @@ class GradCAM:
         return "conv_final"
 
     def generate_heatmap(self, img_batch, pred_index=None):
+        if hasattr(img_batch, 'shape') and len(img_batch.shape) == 4 and img_batch.shape[1] == 3:
+            img_batch = np.transpose(img_batch, (0, 2, 3, 1))
         try:
             target_layer = self.model.get_layer(self.last_conv_layer_name)
             grad_model = tf.keras.models.Model(
