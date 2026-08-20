@@ -93,7 +93,7 @@ st.markdown("""
         padding: 12px 16px;
         text-align: center;
     }
-    .metric-pill .value { font-size: 1.5rem; font-weight: 700; color: #38bdf8; }
+    .metric-pill .value { font-size: 1.6rem; font-weight: 700; color: #38bdf8; }
     .metric-pill .label { font-size: 0.85rem; color: #94a3b8; text-transform: uppercase; }
 
     .disclaimer-banner {
@@ -116,7 +116,8 @@ st.markdown("""
 # Initialize Database
 db = PredictionDB()
 
-# Load Predictor Engine with Auto-Refresh
+# Load Predictor Engine with Resource Caching
+@st.cache_resource
 def get_predictor(model_type):
     p = Predictor(model_type=model_type)
     if not p.is_loaded:
@@ -163,9 +164,10 @@ with st.sidebar:
     st.info(f"Compute Engine: `TensorFlow 2.x (Keras)`")
 
 # Tabs Setup
-tab_inference, tab_history = st.tabs([
+tab_inference, tab_history, tab_metrics = st.tabs([
     "🔍 Radiograph Analysis", 
-    "🗄️ Database Prediction History"
+    "🗄️ Database Prediction History",
+    "📊 Model Performance Graphs & Matrix"
 ])
 
 # Tab 1: Radiograph Analysis
@@ -217,7 +219,7 @@ with tab_inference:
 
     with col_results:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.subheader("2. AI Diagnostic Inference")
+        st.subheader("2. AI Diagnostic Inference & Percentages")
 
         if image_to_process is not None:
             if not predictor.is_loaded:
@@ -248,45 +250,87 @@ with tab_inference:
                     st.markdown(f"""
                     <div class="badge-pneumonia">
                         🚨 PNEUMONIA DETECTED<br>
-                        <span style="font-size: 1rem; font-weight: 500;">Confidence: {pneu_prob*100:.1f}%</span>
+                        <span style="font-size: 1rem; font-weight: 500;">Prediction Confidence: {pneu_prob*100:.2f}%</span>
                     </div>
                     """, unsafe_allow_html=True)
                 else:
                     st.markdown(f"""
                     <div class="badge-healthy">
                         ✅ HEALTHY / NORMAL<br>
-                        <span style="font-size: 1rem; font-weight: 500;">Confidence: {normal_prob*100:.1f}%</span>
+                        <span style="font-size: 1rem; font-weight: 500;">Prediction Confidence: {normal_prob*100:.2f}%</span>
                     </div>
                     """, unsafe_allow_html=True)
 
-                col_m1, col_m2 = st.columns(2)
+                # Percentage Metrics Cards
+                st.markdown("#### 📊 Diagnostic Probabilities (%)")
+                col_m1, col_m2, col_m3 = st.columns(3)
                 with col_m1:
-                    st.markdown(f'<div class="metric-pill"><div class="value">{normal_prob*100:.1f}%</div><div class="label">Normal Probability</div></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="metric-pill"><div class="value">{normal_prob*100:.2f}%</div><div class="label">Healthy Normal Prob</div></div>', unsafe_allow_html=True)
                 with col_m2:
-                    st.markdown(f'<div class="metric-pill"><div class="value">{pneu_prob*100:.1f}%</div><div class="label">Pneumonia Probability</div></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="metric-pill"><div class="value">{pneu_prob*100:.2f}%</div><div class="label">Pneumonia Prob</div></div>', unsafe_allow_html=True)
+                with col_m3:
+                    st.markdown(f'<div class="metric-pill"><div class="value">{conf*100:.2f}%</div><div class="label">Top Confidence</div></div>', unsafe_allow_html=True)
 
                 st.markdown("<br>", unsafe_allow_html=True)
 
-                # Risk Gauge
-                fig_gauge = go.Figure(go.Indicator(
-                    mode="gauge+number",
-                    value=pneu_prob * 100,
-                    domain={'x': [0, 1], 'y': [0, 1]},
-                    title={'text': "Pneumonia Infection Risk Score", 'font': {'color': "#ffffff", 'size': 16}},
-                    number={'suffix': "%", 'font': {'color': "#ef4444" if pred_class == "PNEUMONIA" else "#10b981"}},
-                    gauge={
-                        'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#94a3b8"},
-                        'bar': {'color': "#ef4444" if pred_class == "PNEUMONIA" else "#10b981"},
-                        'bgcolor': "rgba(15, 23, 42, 0.8)",
-                        'bordercolor': "rgba(255, 255, 255, 0.1)",
-                        'steps': [
-                            {'range': [0, 50], 'color': "rgba(16, 185, 129, 0.15)"},
-                            {'range': [50, 100], 'color': "rgba(239, 68, 68, 0.15)"}
-                        ],
-                    }
-                ))
-                fig_gauge.update_layout(height=200, margin=dict(l=20, r=20, t=40, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig_gauge, use_container_width=True)
+                # Progress Bars for Probability
+                st.markdown("**Healthy / Normal Probability Progress:**")
+                st.progress(float(normal_prob))
+                st.markdown("**Pneumonia Infection Probability Progress:**")
+                st.progress(float(pneu_prob))
+
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                # Graphs & Charts Section
+                st.markdown("#### 📈 Diagnostic Graphs & Infection Risk Gauge")
+                col_g1, col_g2 = st.columns([1, 1])
+
+                with col_g1:
+                    # Risk Gauge
+                    fig_gauge = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=pneu_prob * 100,
+                        domain={'x': [0, 1], 'y': [0, 1]},
+                        title={'text': "Pneumonia Infection Risk", 'font': {'color': "#ffffff", 'size': 14}},
+                        number={'suffix': "%", 'font': {'color': "#ef4444" if pred_class == "PNEUMONIA" else "#10b981", 'size': 24}},
+                        gauge={
+                            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#94a3b8"},
+                            'bar': {'color': "#ef4444" if pred_class == "PNEUMONIA" else "#10b981"},
+                            'bgcolor': "rgba(15, 23, 42, 0.8)",
+                            'bordercolor': "rgba(255, 255, 255, 0.1)",
+                            'steps': [
+                                {'range': [0, 50], 'color': "rgba(16, 185, 129, 0.2)"},
+                                {'range': [50, 100], 'color': "rgba(239, 68, 68, 0.2)"}
+                            ],
+                        }
+                    ))
+                    fig_gauge.update_layout(height=220, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                    st.plotly_chart(fig_gauge, use_container_width=True)
+
+                with col_g2:
+                    # Class Probability Comparison Bar Chart
+                    df_prob = pd.DataFrame({
+                        "Class": ["Normal", "Pneumonia"],
+                        "Probability (%)": [normal_prob * 100, pneu_prob * 100]
+                    })
+                    fig_bar = px.bar(
+                        df_prob,
+                        x="Class",
+                        y="Probability (%)",
+                        text_auto='.2f',
+                        color="Class",
+                        color_discrete_map={"Normal": "#10b981", "Pneumonia": "#ef4444"},
+                        title="Class Probability Breakdown (%)"
+                    )
+                    fig_bar.update_layout(
+                        height=220,
+                        margin=dict(l=10, r=10, t=30, b=10),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(15, 23, 42, 0.6)",
+                        font=dict(color="#ffffff"),
+                        showlegend=False
+                    )
+                    st.plotly_chart(fig_bar, use_container_width=True)
 
                 # Grad-CAM Heatmap Analysis
                 if show_gradcam:
@@ -331,6 +375,36 @@ with tab_history:
                 st.rerun()
     else:
         st.info("No prediction history recorded in database yet.")
+
+# Tab 3: Model Performance Graphs & Confusion Matrix
+with tab_metrics:
+    st.subheader("📊 Model Performance Graphs & Confusion Matrix")
+    st.caption("Comprehensive Evaluation Visualizations across Test Dataset")
+
+    col_cm, col_roc = st.columns(2)
+
+    with col_cm:
+        st.markdown("#### 🟦 Confusion Matrix Graph")
+        if os.path.exists(config.CONFUSION_MATRIX_PATH):
+            st.image(config.CONFUSION_MATRIX_PATH, caption="Test Dataset Confusion Matrix", use_container_width=True)
+        else:
+            st.info("Run `python src/train.py` to generate Confusion Matrix plot.")
+
+    with col_roc:
+        st.markdown("#### 🟧 ROC Curve Graph")
+        if os.path.exists(config.ROC_CURVE_PATH):
+            st.image(config.ROC_CURVE_PATH, caption="Receiver Operating Characteristic (ROC) Curve", use_container_width=True)
+        else:
+            st.info("Run `python src/train.py` to generate ROC Curve plot.")
+
+    st.markdown("---")
+    st.markdown("#### 📋 Model Performance Metrics JSON")
+    if os.path.exists(config.METRICS_JSON_PATH):
+        with open(config.METRICS_JSON_PATH, "r") as f:
+            metrics_data = json.load(f)
+        st.json(metrics_data)
+    else:
+        st.info("No metrics JSON file found. Run training script `python src/train.py` to populate.")
 
 # Footer
 st.markdown("""
